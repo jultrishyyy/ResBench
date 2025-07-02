@@ -107,3 +107,17 @@ python setup.py -resource_usage
 
 
 
+# Citation
+If ResBench is useful for your research work, please cite our paper:
+* Guo C, Zhao T. ResBench: A Resource-Aware Benchmark for LLM-Generated FPGA Designs. InProceedings of the 15th International Symposium on Highly Efficient Accelerators and Reconfigurable Technologies 2025 May 26 (pp. 25-34).
+
+BibTeX code:
+```bibtex
+@inproceedings{guo2025resbench,
+  title={ResBench: A Resource-Aware Benchmark for LLM-Generated FPGA Designs},
+  author={Guo, Ce and Zhao, Tong},
+  booktitle={Proceedings of the 15th International Symposium on Highly Efficient Accelerators and Reconfigurable Technologies},
+  pages={25--34},
+  year={2025}
+}
+```
