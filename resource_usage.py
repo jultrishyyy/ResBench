@@ -3,6 +3,47 @@ import subprocess
 import os
 import re
 
+vivado_proc = None
+
+def start_vivado(vivado_path):
+    global vivado_proc
+
+    if vivado_proc is None:
+        vivado_proc = subprocess.Popen(
+            [vivado_path, "-mode", "tcl", "-nojournal", "-nolog"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+
+    return vivado_proc
+
+
+def execute_tcl(vivado_path, tcl_commands):
+    proc = start_vivado(vivado_path)
+
+    marker = "__SYNTH_DONE__"
+
+    proc.stdin.write(tcl_commands + "\n")
+    proc.stdin.write(f'puts "{marker}"\n')
+    proc.stdin.flush()
+
+    output = []
+
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            break
+
+        output.append(line)
+
+        if marker in line:
+            break
+
+    return "".join(output)
+
 def extract_module_name(verilog_code):
     """
     Extract the module name from the Verilog code.
@@ -107,7 +148,6 @@ def run_synthesis(solution_code):
         print("Could not extract module name; using 'temp_top' as a default.")
         top_module = "temp_top"
 
-    vivado_project = "temp_project"
     tcl_script = "synthesis_script.tcl"
 
     # Get the Vivado installation path from the environment variable.
@@ -115,37 +155,44 @@ def run_synthesis(solution_code):
     if vivado_path_env is None:
         print("Error: 'vivado' environment variable is not set.")
         return None
-    vivado_path = os.path.join(vivado_path_env, "vivado.bat")
+    os_name = os.name
+    if (os_name == "posix"): 
+        vivado_path = os.path.join(vivado_path_env, "vivado")
+    elif (os_name == "nt"): 
+        vivado_path = os.path.join(vivado_path_env, "vivado.bat")
+    else:
+        raise EnvironmentError("Could not determine os")
 
     # Create the Vivado Tcl script.
     tcl_commands = f"""
-    create_project {vivado_project} -force -part xc7z020clg400-1
-    add_files {verilog_file}
-    set_property top {top_module} [current_fileset]
+    catch {{close_design}}
+    catch {{remove_files [get_files *]}}
 
-    # Run synthesis only (no simulation)
-    synth_design -top {top_module}
+    read_verilog {verilog_file}
 
-    # Generate resource utilization report
+    synth_design \
+        -top {top_module} \
+
     report_utilization -file resource_usage.rpt
 
-    quit
+    close_design
     """
-    with open(tcl_script, "w") as file:
-        file.write(tcl_commands)
+
+    # Cleanup resource_usage.rpt from previous run
+    if os.path.exists("resource_usage.rpt"):
+        os.remove("resource_usage.rpt")
 
     # Run Vivado in batch mode using the generated Tcl script.
     try:
-        result = subprocess.run(
-            [vivado_path, "-mode", "batch", "-source", tcl_script],
-            capture_output=True, text=True, check=True
-        )
-    except subprocess.CalledProcessError as e:
+        vivado_output = execute_tcl(vivado_path, tcl_commands)
+    except Exception as e:
         print("Synthesis failed:", e)
         return None
-    print(result.stdout)
+
+    print(vivado_output)
+
     # Check for the success message in the output.
-    if "Finished Writing Synthesis Report" in result.stdout:
+    if os.path.exists("resource_usage.rpt"):
         # Read the resource utilization report.
         with open("resource_usage.rpt", "r") as f:
             report_lines = f.readlines()
@@ -190,5 +237,13 @@ def run_resource_usage():
                     with open(output_json_file, "w") as f:
                         json.dump(data, f, indent=4)
                     print(f"Updated JSON written to {output_json_file}")
+
+    global vivado_proc
+
+    if vivado_proc is not None:
+        vivado_proc.stdin.write("exit\n")
+        vivado_proc.stdin.flush()
+        vivado_proc.wait()
+        vivado_proc = None
 
 

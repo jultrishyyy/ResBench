@@ -1,8 +1,11 @@
 import json
+import os
+import sys
 import matplotlib.pyplot as plt
 import re
 import seaborn as sns
 import pandas as pd
+from datetime import datetime
 
 # --- Utility Functions ---
 
@@ -57,8 +60,19 @@ def compute_category_pass_at_k(llm_data, ks):
 
 # --- Main processing and plotting ---
 
-# Choose the k values you want to evaluate pass@k for:
-ks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# Create figures directory if it doesn't exist already:
+os.makedirs("./figures", exist_ok=True)
+
+# Take timestamp at script start and create directory
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+working_dir = "./figures/" + timestamp
+os.makedirs(working_dir)
+
+# Creates k list from argument
+max_k = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+if max_k < 1:
+    raise ValueError("max_k must be positive")
+ks = list(range(1, max_k + 1))
 
 # Load the JSON file.
 input_json_file = "solutions.json"  # adjust filename if necessary
@@ -80,57 +94,52 @@ plt.figure(figsize=(10, 6))
 for llm, res in llm_results.items():
     plt.plot(ks, [res["overall"][k] for k in ks], marker='o', label=llm)
 
-# plt.xticks(ks)  # Ensure all values from 1 to 15 are shown
-# plt.xlabel("k", fontsize=14)
-# plt.ylabel("Overall Pass@k", fontsize=14)
-# plt.title("Overall Pass@k across k for each LLM", fontsize=16)  # Larger title
-# plt.legend(loc="upper left", bbox_to_anchor=(1, 1))  # Legend outside the plot
-# plt.grid(True)
-# plt.tight_layout()
-# plt.savefig("./figures/overall_pass_at_k.png")
-# plt.show()
-
-
-# --- Plot Per-Category Pass@k for all LLMs, one figure per k ---
-# First, determine the union of all categories across LLMs.
-# Prepare data for heatmap
-category_pass_k = {}
-for llm, res in llm_results.items():
-    for cat, kdict in res["categories"].items():
-        if cat not in category_pass_k:
-            category_pass_k[cat] = {}
-        category_pass_k[cat][llm] = kdict[15]  # Using Pass@15
-
-# Convert to DataFrame
-df_heatmap = pd.DataFrame.from_dict(category_pass_k).T
-
+plt.xticks(ks)  # Ensure all values from 1 to 15 are shown
+plt.xlabel("k")
+plt.ylabel("Pass@k")
+plt.title("Overal Pass@k")  # Larger title
+plt.legend(loc="upper left", bbox_to_anchor=(1, 1))  # Legend outside the plot
+plt.grid(True)
+plt.tight_layout()
+plt.savefig(os.path.join(working_dir,"overall_pass_at_k.png"))
+plt.close()
 
 for k in ks:
+
+    # --- Plot Per-Category Pass@k for all LLMs, one figure per k ---
+    # First, determine the union of all categories across LLMs.
+    # Prepare data for heatmap
+    category_pass_k = {}
+    for llm, res in llm_results.items():
+        for cat, kdict in res["categories"].items():
+            if cat not in category_pass_k:
+                category_pass_k[cat] = {}
+            category_pass_k[cat][llm] = kdict[k]
+
     # Convert to DataFrame
-    df_heatmap = pd.DataFrame.from_dict(category_pass_k).T
+    df_heatmap = pd.DataFrame.from_dict(category_pass_k, orient="index")
 
     # Plot heatmap
     plt.figure(figsize=(10, 6))
     sns.heatmap(df_heatmap, annot=True, cmap="Blues", linewidths=0.5, fmt=".2f")
 
-    plt.title("Pass@15 Heatmap for Each LLM Across Categories", fontsize=16, fontweight="bold")
-    plt.xlabel("LLM", fontsize=14, fontweight="bold")
-    plt.ylabel("Category", fontsize=14, fontweight="bold")
+    plt.title(f"Pass@{k} Heatmap for Each LLM Across Categories")
+    plt.xlabel("LLM")
+    plt.ylabel("Category")
 
-    plt.xticks(rotation=45, ha="right", fontsize=12)
-    plt.yticks(fontsize=12)
+    plt.xticks(rotation=45, ha="right")
 
     plt.tight_layout()
-    heatmap_path = f"./figures/per_category_pass_k{k}_heatmap.png"
-    plt.savefig(heatmap_path)
+    plt.savefig(os.path.join(working_dir,f"per_category_pass_{k}_heatmap.png"))
+    plt.close()
 
 # --- (Optional) Print the computed results ---
-print("Overall Pass@k per LLM:")
-for llm, res in llm_results.items():
-    print(f"{llm}: {res['overall']}")
+#print("Overall Pass@k per LLM:")
+#for llm, res in llm_results.items():
+#    print(f"{llm}: {res['overall']}")
 
-print("\nPer-Category Pass@k per LLM:")
-for llm, res in llm_results.items():
-    print(f"{llm}:")
-    for cat, kdict in res["categories"].items():
-        print(f"  {cat}: {kdict}")
+#print("\nPer-Category Pass@k per LLM:")
+#for llm, res in llm_results.items():
+#    print(f"{llm}:")
+#    for cat, kdict in res["categories"].items():
+#        print(f"  {cat}: {kdict}")

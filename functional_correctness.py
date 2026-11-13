@@ -10,22 +10,11 @@ TEMP_VERILOG_FILE = "temp.v"
 TEMP_TESTBENCH_FILE = "testbench.v"
 TCL_SCRIPT_FILE = "run_testbench.tcl"
 
-def write_tcl():
-        # Generate the TCL script for Vivado
-    tcl_commands = f"""
-    create_project temp_project ./temp_project -force -part xc7z020clg400-1
-    set_property source_mgmt_mode All [current_project]
-    add_files {TEMP_VERILOG_FILE}
-    add_files -fileset sim_1 {TEMP_TESTBENCH_FILE}
-    set_property top {top_module} [get_filesets sim_1]
-    launch_simulation -simset sim_1 -mode behavioral
-    run 3000ns
-    close_sim
-    exit
-    """
-    # Write the Tcl script
-    with open(TCL_SCRIPT_FILE, "w", encoding="utf-8") as file:
-        file.write(tcl_commands)
+# List of possible success_messages
+success_messages = [
+    "All tests passed",
+    "Your Design Passed"
+]
 
 # Function to extract the top module name from the testbench
 def extract_top_module_name(testbench_file):
@@ -37,7 +26,43 @@ def extract_top_module_name(testbench_file):
                 return match.group(1)  # Extract module name
     return None  # Return None if no module found
 
+# Function that executes the actual simulation via xsim
+def run_xsim(module_name, xvlog, xelab, xsim):
 
+    # Compile DUT + Testbench
+    compile_proc = subprocess.run(
+        [xvlog, TEMP_VERILOG_FILE, TEMP_TESTBENCH_FILE],
+        capture_output=True,
+        text=True
+    )
+
+    output_log = compile_proc.stdout + "\n" + compile_proc.stderr
+
+    if compile_proc.returncode != 0:
+        return output_log
+
+    # Elaborate
+    elab_proc = subprocess.run(
+        [xelab, module_name, "-s", "sim_snapshot"],
+        capture_output=True,
+        text=True
+    )
+
+    output_log += elab_proc.stdout + "\n" + elab_proc.stderr
+
+    if elab_proc.returncode != 0:
+        return output_log
+
+    # Run simulation
+    sim_proc = subprocess.run(
+        [xsim, "sim_snapshot", "-runall"],
+        capture_output=True,
+        text=True
+    )
+
+    output_log += sim_proc.stdout + "\n" + sim_proc.stderr
+
+    return output_log
 
 def run_functional_correctness():
     # Load JSON files
@@ -58,13 +83,23 @@ def run_functional_correctness():
 
     # print(module_testbenches.keys())
 
-
-
     # Get Vivado path from environment variable
     vivado_path = os.environ.get("vivado")
     if not vivado_path:
         raise EnvironmentError("Vivado environment variable not set.")
-    vivado_path = os.path.join(vivado_path, "vivado.bat")
+    os_name = os.name
+    if (os_name == "posix"): 
+        xvlog = os.path.join(vivado_path, "xvlog")
+        xelab = os.path.join(vivado_path, "xelab")
+        xsim = os.path.join(vivado_path, "xsim")
+        vivado_path = os.path.join(vivado_path, "vivado")
+    elif (os_name == "nt"): 
+        xvlog = os.path.join(vivado_path, "xvlog.bat")
+        xelab = os.path.join(vivado_path, "xelab.bat")
+        xsim = os.path.join(vivado_path, "xsim.bat")
+        vivado_path = os.path.join(vivado_path, "vivado.bat")
+    else:
+        raise EnvironmentError("Could not determine os")    
 
     # Iterate over solutions and test them
     for model, categories in solutions_data.items():
@@ -78,48 +113,44 @@ def run_functional_correctness():
                     print(f"Skipping {module_name}: No testbench found.")
                     continue
 
-
                 testbench_code = module_testbenches[module_name]
                 solutions = module_entry["solutions"]
+
+                # Write the testbench to a file
+                with open(TEMP_TESTBENCH_FILE, "w", encoding="utf-8") as f:
+                    f.write(testbench_code)
+
+                # Extract the top module name
+                top_module = extract_top_module_name(TEMP_TESTBENCH_FILE)
+                if not top_module:
+                    print(f"Error: Could not extract top module from {module_name}. Skipping...")
+                    solution_entry["pass"] = "Error: Could not extract top module."
+                    continue
 
                 # Iterate over all solutions
                 for solution_entry in solutions:
                     verilog_code = solution_entry["solution"]
+                    if "`timescale" not in verilog_code:
+                        verilog_code = "`timescale 1ns/1ps\n" + verilog_code
 
                     # Write the Verilog design to a file
                     with open(TEMP_VERILOG_FILE, "w", encoding="utf-8") as f:
                         f.write(verilog_code)
 
-                    # Write the testbench to a file
-                    with open(TEMP_TESTBENCH_FILE, "w", encoding="utf-8") as f:
-                        f.write(testbench_code)
-
-                    # Extract the top module name
-                    top_module = extract_top_module_name(TEMP_TESTBENCH_FILE)
-                    if not top_module:
-                        print(f"Error: Could not extract top module from {module_name}. Skipping...")
-                        solution_entry["pass"] = "Error: Could not extract top module."
-                        continue
-
                     print(f"Testing module: {module_name} (Top Module: {top_module})")
+                    print(f"Running XSIM simulation for {module_name}...")
 
-                    write_tcl()
-
-                    # Run Vivado in batch mode
-                    print(f"Running Vivado simulation for {module_name}...")
-                    process = subprocess.run([vivado_path, "-mode", "batch", "-source", TCL_SCRIPT_FILE], capture_output=True, text=True)
-
-                    # Capture output logs
-                    output_log = process.stdout + "\n" + process.stderr
+                    # Run simulation and extract output
+                    output_log = run_xsim(top_module, xvlog, xelab, xsim)
                     print(output_log)
-                    test_passed = "All tests passed" in output_log
+                    test_passed = any(msg in output_log for msg in success_messages)
 
                     # Determine pass/fail status
                     if test_passed:
                         solution_entry["pass"] = "true"
                     else:
                         # Extract relevant error messages
-                        error_lines = "\n".join(line for line in output_log.split("\n") if "error" or "fail" in line.lower())
+                        error_lines = "\n".join(line for line in output_log.split("\n") if "error" in line.lower() or "fail" in line.lower())
                         solution_entry["pass"] = error_lines if error_lines else "Test failed somehow"
 
                     print(f"Test result for {module_name}: {'PASS' if test_passed else 'FAIL'}")
