@@ -2,6 +2,11 @@ import json
 import os
 import re
 from openai import OpenAI
+from groq import Groq
+
+# define input/output token counters
+input_token_count = [0]
+output_token_count = [0]
 
 def load_prompt_data(filepath: str) -> dict:
     """
@@ -58,18 +63,30 @@ def call_LLMs(client, model: str, problem: str, module_header: str) -> str:
             top_p=0.75,
         )
         response_content = response.choices[0].message.content.strip()
+        if hasattr(response.usage, "input_tokens"):
+            input_token_count.append(response.usage.input_tokens)
+            output_token_count.append(response.usage.output_tokens)
+        else:
+            input_token_count.append(response.usage.prompt_tokens)
+            output_token_count.append(response.usage.completion_tokens)
+
         return response_content
     except Exception as e:
         print("Error:", str(e))
         return json.dumps({"solution": f"Error: {str(e)}"})
 
-def generate_solutions(api_key: str, model_name: str, k: int, prompt_json_file: str = "problems.json", solutions_json_file: str = "solutions.json"):
+def generate_solutions(provider: str, api_key: str, model_name: str, k: int, prompt_json_file: str = "problems.json", solutions_json_file: str = "solutions.json"):
     """
     Generates Verilog solutions for problems using an LLM.
     """
-    # Initialize OpenAI client
-    client = OpenAI(api_key=api_key)
-    
+    # Initialize OpenAI compatible client
+    if provider == "openai": client = OpenAI(api_key=api_key)
+    elif provider == "ollama": client = OpenAI(api_key=api_key,base_url="https://ollama.com/v1/")
+    elif provider == "gemini": client = OpenAI(api_key=api_key,base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    elif provider == "groq": client = Groq(api_key=api_key)
+    else: 
+        raise Exception("No valid llm provider was selected")
+
     # Load the problem data
     prompt_data = load_prompt_data(prompt_json_file)
     
@@ -109,3 +126,6 @@ def generate_solutions(api_key: str, model_name: str, k: int, prompt_json_file: 
                 
                 module_entry["solutions"].append({"solution": verilog_code, "pass": ""})
                 save_solutions(solutions_json_file, solutions_data)
+
+    print(f"Total input tokens used: {sum(input_token_count)}")
+    print(f"Total output tokens used: {sum(output_token_count)}")

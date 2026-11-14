@@ -1,0 +1,39 @@
+# Python files
+__pycache__
+
+# environment file
+.env
+
+# API URLs and keys
+API_URL_and_keys.txt
+
+# Figures
+figures
+
+# Problem and solution files
+solution_pass_analysis.csv
+solution_resource_analysis.csv
+problems.json
+problems_test.json
+problems_org.json
+solutions*
+
+# Temporary folders/files (deleted after each run)
+.Xil
+temp_project
+temp_project.xpr
+temp_project.cache
+temp_project.hw
+temp_project.ip_user_files
+temp.v
+testbench.v
+run_testbench.tcl
+synthesis_script.tcl
+resource_usage.rpt
+
+# testbench import file (see insterting custom/new problems in README)
+testbench_import.v
+
+# Log files (deleted if argument passed)
+*.jou
+*.log

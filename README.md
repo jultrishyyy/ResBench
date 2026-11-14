@@ -5,6 +5,11 @@ This repository contains the code for benchmarking FPGA resource usage for Veril
 ## Simulation and Synthesis Tools
 The simulation tool for functional correctness tests and the synthesis tool for obtaining resource usage are both based on **Vivado**. Please install **Vivado** in advance to run the framework. If you wish to use other tools, modify the relevant Python scripts accordingly.
 
+Also ensure that the 'vivado' environment variable (in the .env file) is set to the location were **Vivado** is installed.
+```sh
+which vivado
+```
+
 Some dependencies are listed in `requirements.txt`, which you can install using:
 ```sh
 pip install -r requirements.txt
@@ -28,6 +33,22 @@ The `problems.json` file contains our benchmark dataset, formatted as follows:
 ```
 
 You can use this dataset to generate solutions and run functional correctness checks for any LLMs you want to evaluate.
+
+## Adding new/custom problems (`problems.json`)
+You can edit the `problems.json` file to include new problems, provided you have natural language descriptions and testbenches for each one. Make sure to properly fill in each field per module (you can also put new modules under new categories):
+- `module`: The name you want to give to this module. For consistancy, make sure it's the same as the module header and testbench
+- `Problem`: A natural language description of the problem. This should not contain any information about inputs or outputs, those are pulled from the module header.
+- `Module header`: The header that will be assigned to the generated module. Contains the inputs and outputs the llm has to use.
+- `Testbench`: Here the full testbench should be written. For simplicity, we suggest naming the testbench as '<module_name>_tb'.
+
+To ensure that functional testing and resource usage measuring works consistantly, we recommend the following:
+- The testbench module header should be preceded by a newline and only contain a semicolan after the name (no brackets of any kind).
+- The testbench and module header need to be added as one line, with escape characters used to show newlines (\n) etc. For Linux/MacOS, the following command can be used automatically generate this format from a verilog file. This will give the testbench in the correct format as output, which can then be easily copy-pasted into `problems.json`
+```sh
+jq -Rs . testbench.v
+```
+- The testbench needs to be pass/fail and display a message when the design fully passed (this is used to check if the testbench passed). In `functional_correctness.py`, a list is present containing possible pass messages. If your problems testbench does not use any of these, simply add the message that is used in the testbench to the list. The 'Test failed somehow' response is a common indicator that the pass message was not found/is not present in the list.
+
 
 ## Experimental Results (`solutions.json` Format)
 The `solutions` directory contains our experimental results, formatted as follows:
@@ -77,15 +98,21 @@ The `solutions` directory contains our experimental results, formatted as follow
 To quickly run the benchmarking process, copy `solutions.json` from the `solutions` directory to the same directory as `setup.py`, then execute:
 
 ```sh
-python setup.py -model gpt-4o 5 your_openai_api_key -functional_correctness -resource_usage
+python setup.py -generate_solutions openai gpt-4o 5 your_openai_api_key -functional_correctness -resource_usage
 ```
 
 This command will:
-1. Generate 5 solutions for each problem using `gpt-4o`.
+1. Generate 5 solutions for each problem using `gpt-4o` being run on OpenAI servers.
 2. Run the functional correctness check.
 3. Obtain the resource usage report for LUT usage.
 
-The standard script currently supports OpenAI's GPT models. If you want to test other LLMs, please modify `generate_solutions.py` accordingly.
+The standard script currently supports the following OpenAI API compatible providers (after doule quotes is argument itself, as seen above): 
+- OpenAI: 'openai'
+- Ollama: 'ollama'
+- Gemine/Google AI studio: 'gemini'
+- Groq: "groq
+
+If you want to test other LLMs/providers, please modify `generate_solutions.py` accordingly.
 
 ## Running Functional and Resource Usage Tests on Custom Solutions
 You can also run the functional test and resource usage analysis on your own solutions. Ensure that your `solutions.json` follows the format above and place it in the same directory as `setup.py`, then execute:
@@ -105,7 +132,26 @@ To run **resource usage analysis** alone:
 python setup.py -resource_usage
 ```
 
+## Log files
+Each run of funcional correctness and/or resource_usage creates a set of log files for every simulation and/or synthesis that is executed. To delete **all log files** at the end of the run:
+```sh
+python setup.py <desired-run-arguments> -remove_logs
+```
 
+## Pass@k heatmaps/overal graph and counting pass rate/resource usage
+The evaluate folder contains scripts for the following:
+- count_pass.py: Creates a .csv file containing a table of the amount of **passes and errors** across all solutions. Values are sorted by model and overal module category (for example, parity_8_bit and mux4to1 are both in the Combinational Logic category).
+```sh
+python count_pass.py 
+```
+- count_resource.py: Creates a .csv file containing a table of the lowest **LUT usage** per problem. Note that **'inf'** values mean no valid, synthesizable solution exist for that problem.
+```sh
+python count_resource.py 
+```
+- plot_pass.py: Takes the desired value of **k** as only argument, creating **k** **Pass@k** heatmaps from **1 to k**. Besides that, it also draws an overall **Pass@k** graph, showing how pass rate evolves over **k** tries. **k** should match the amount of solutions per module.
+```sh
+python plot_pass.py 5
+```
 
 # Citation
 If ResBench is useful for your research work, please cite our paper:
